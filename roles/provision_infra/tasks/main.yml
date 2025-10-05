@@ -6,8 +6,8 @@
       amazon.aws.ec2_vpc_net:
         name: "{{ project_name }}-vpc"
         cidr_block: "{{ vpc_cidr_block }}"
-        enable_dns_support: true
-        enable_dns_hostnames: true
+        dns_support: true
+        dns_hostnames: true
         state: present
         tags: "{{ common_tags | combine({'Component': 'network'}) }}"
       register: created_vpc
@@ -47,6 +47,8 @@
     - name: Associar sub-redes públicas ao route table
       amazon.aws.ec2_vpc_route_table:
         route_table_id: "{{ public_route_table.route_table.id }}"
+        lookup: id
+        vpc_id: "{{ resolved_vpc_id }}"
         state: present
         subnets: "{{ created_public_subnets.results | map(attribute='subnet.id') | list }}"
 
@@ -119,7 +121,7 @@
     description: Permite HTTP/HTTPS para o servidor web
     vpc_id: "{{ resolved_vpc_id }}"
     tags: "{{ common_tags | combine({'Role': 'web'}) }}"
-    inbound_rules:
+    rules:
       - proto: tcp
         from_port: 80
         to_port: 80
@@ -128,7 +130,11 @@
         from_port: 443
         to_port: 443
         cidr_ip: 0.0.0.0/0
-    outbound_rules:
+      - proto: tcp
+        from_port: 22
+        to_port: 22
+        cidr_ip: "{{ ssh_ingress_cidr }}"
+    rules_egress:
       - proto: -1
         from_port: 0
         to_port: 0
@@ -139,15 +145,15 @@
 - name: Criar security group para o banco de dados
   amazon.aws.ec2_security_group:
     name: "{{ project_name }}-db-sg"
-    description: Permite acesso MySQL proveniente das instâncias web
+    description: Permite acesso MySQL proveniente das instancias web
     vpc_id: "{{ resolved_vpc_id }}"
     tags: "{{ common_tags | combine({'Role': 'database'}) }}"
-    inbound_rules:
+    rules:
       - proto: tcp
         from_port: 3306
         to_port: 3306
         group_id: "{{ web_sg.group_id }}"
-    outbound_rules:
+    rules_egress:
       - proto: -1
         from_port: 0
         to_port: 0
@@ -160,16 +166,36 @@
     name: "{{ ec2_key_name }}"
     key_material: "{{ lookup('ansible.builtin.file', ec2_public_key_path) }}"
     state: present
-  when: ec2_public_key_path is defined
+  when: (ec2_public_key_path | default('', true)) | length > 0
+  register: provided_key
+
+- name: Criar par de chaves automaticamente quando nenhuma chave pública for informada
+  amazon.aws.ec2_key:
+    name: "{{ ec2_key_name }}"
+    state: present
+  register: generated_key
+  when: (ec2_public_key_path | default('', true)) | length == 0
+
+- name: Armazenar chave privada gerada
+  ansible.builtin.copy:
+    dest: "{{ playbook_dir }}/../artifacts/{{ ec2_key_name }}.pem"
+    content: "{{ generated_key.key.private_key }}"
+    mode: "0600"
+  delegate_to: localhost
+  run_once: true
+  when:
+    - generated_key is defined
+    - generated_key.key is defined
+    - generated_key.key.private_key is defined
 
 - name: Provisionar instância EC2 para o servidor web
   amazon.aws.ec2_instance:
-    name: "{{ project_name }}-web-{{ environment }}"
+    name: "{{ project_name }}-web-{{ deployment_environment }}"
     key_name: "{{ ec2_key_name }}"
     instance_type: "{{ ec2_instance_type }}"
     image_id: "{{ ec2_ami_id }}"
     subnet_id: "{{ resolved_public_subnets[0] }}"
-    security_group_ids:
+    security_groups:
       - "{{ web_sg.group_id }}"
     volumes:
       - device_name: /dev/xvda
