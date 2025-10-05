@@ -1,2 +1,3 @@
 *.pem
 artifacts/*
+aws_credentials.bkp
