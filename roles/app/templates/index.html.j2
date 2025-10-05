@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>{{ project_name | default('Ansible Startup Lab') }}</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 40px; background: #0f172a; color: #e2e8f0; }
+      h1 { color: #38bdf8; }
+      .info { margin-top: 20px; padding: 16px; background: rgba(15, 23, 42, 0.8); border-radius: 6px; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.4); }
+      .tag { display: inline-block; padding: 4px 8px; border-radius: 4px; background: #1e293b; color: #f8fafc; margin-right: 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>Aplicação Nginx provisionada com Ansible</h1>
+    <p>{{ app_welcome_message }}</p>
+    <div class="info">
+      <p><span class="tag">Projeto</span> {{ project_name }}</p>
+      <p><span class="tag">Ambiente</span> {{ environment }}</p>
+      <p><span class="tag">Região AWS</span> {{ aws_region }}</p>
+      <p><span class="tag">Release</span> {{ app_release_label }}</p>
+      <p><span class="tag">Atualizado em</span> {{ ansible_date_time.date }} {{ ansible_date_time.time }}</p>
+    </div>
+  </body>
+</html>

@@ -1,47 +1,28 @@
 ---
-- name: Garantir diretório de releases da aplicação
-  ansible.builtin.file:
-    path: /opt/app/releases
-    state: directory
-    owner: apache
-    group: apache
-    mode: "0755"
+- name: Publicar página principal da aplicação
+  ansible.builtin.template:
+    src: index.html.j2
+    dest: "{{ app_document_root }}/index.html"
+    owner: nginx
+    group: nginx
+    mode: "0644"
   become: true
+  notify: Reload nginx
 
-- name: Fazer checkout da versão solicitada
-  ansible.builtin.git:
-    repo: "{{ app_repository_url }}"
-    version: "{{ app_version }}"
-    dest: "/opt/app/releases/{{ app_version }}"
-    update: true
-    force: true
-  become: true
-  register: app_checkout
-
-- name: Atualizar conteúdo publicado
+- name: Registrar release atual
   ansible.builtin.copy:
-    src: "/opt/app/releases/{{ app_version }}/"
-    dest: "{{ app_document_root }}/"
-    owner: apache
-    group: apache
-    remote_src: true
-  become: true
-  notify: Reiniciar httpd
-
-- name: Registrar release ativo
-  ansible.builtin.copy:
-    dest: "/opt/app/CURRENT"
-    content: "{{ app_version }}\n"
-    owner: apache
-    group: apache
+    dest: "{{ app_document_root }}/RELEASE"
+    content: "{{ app_release_label }}\n"
+    owner: nginx
+    group: nginx
     mode: "0644"
   become: true
 
 - name: Criar página de saúde da aplicação
   ansible.builtin.copy:
-    dest: "{{ app_document_root }}/healthz.html"
+    dest: "{{ app_document_root }}{{ app_healthcheck_path }}"
     content: "OK"
-    owner: apache
-    group: apache
+    owner: nginx
+    group: nginx
     mode: "0644"
   become: true

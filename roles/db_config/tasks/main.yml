@@ -14,8 +14,8 @@
   ansible.builtin.file:
     path: /etc/app
     state: directory
-    owner: apache
-    group: apache
+    owner: nginx
+    group: nginx
     mode: "0750"
   become: true
 
@@ -23,7 +23,7 @@
   ansible.builtin.template:
     src: db.env.j2
     dest: /etc/app/db.env
-    owner: apache
-    group: apache
+    owner: nginx
+    group: nginx
     mode: "0600"
   become: true

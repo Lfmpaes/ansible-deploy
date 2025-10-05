@@ -5,9 +5,25 @@ aws_profile: default  # Ajuste caso use outro profile no arquivo aws_credentials
 project_name: ansible-startup-lab
 environment: production
 
-# Configuração da VPC/Subnets (altere para IDs existentes ou deixe vazio para usar default VPC)
+# Configuração de rede
+create_vpc: true
 vpc_id: null
-public_subnet_ids: []  # Ex.: ['subnet-123', 'subnet-456']
+vpc_cidr_block: 10.0.0.0/16
+public_subnets_config:
+  - name: public-a
+    cidr: 10.0.1.0/24
+    az: us-east-1a
+  - name: public-b
+    cidr: 10.0.2.0/24
+    az: us-east-1b
+private_subnets_config:
+  - name: private-a
+    cidr: 10.0.101.0/24
+    az: us-east-1a
+  - name: private-b
+    cidr: 10.0.102.0/24
+    az: us-east-1b
+public_subnet_ids: []  # Caso utilize VPC existente, informe aqui
 private_subnet_ids: []
 
 # EC2
@@ -31,11 +47,11 @@ rds_multi_az: false
 rds_backup_retention: 7
 rds_publicly_accessible: false
 
-# Aplicação
-app_repository_url: https://github.com/example/static-site.git
-app_version: v1.0.0
-app_document_root: /var/www/html
-app_healthcheck_path: /
+# Aplicação (Nginx)
+app_document_root: /usr/share/nginx/html
+app_release_label: v1.0.0
+app_welcome_message: "Aplicação servida via Nginx gerenciada pelo Ansible."
+app_healthcheck_path: /healthz
 
 # Escalonamento automático
 scale_target_group_name: ansible-startup-alb-target
@@ -45,7 +61,6 @@ scale_policy_name: ansible-startup-scale-policy
 common_tags:
   Project: "{{ project_name }}"
   Environment: "{{ environment }}"
-
 
 # Caminho para a chave pública local usada no EC2 (opcional)
 # ec2_public_key_path: files/id_rsa.pub

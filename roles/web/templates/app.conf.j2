@@ -1,0 +1,19 @@
+server {
+    listen {{ nginx_listen_port | default(80) }};
+    server_name _;
+    root {{ app_document_root }};
+    index index.html;
+
+    access_log /var/log/nginx/app_access.log;
+    error_log /var/log/nginx/app_error.log;
+
+    location = {{ app_healthcheck_path }} {
+        access_log off;
+        return 200 'OK';
+        add_header Content-Type text/plain;
+    }
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}

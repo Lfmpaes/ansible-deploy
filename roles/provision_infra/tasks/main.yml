@@ -1,42 +1,119 @@
 ---
-- name: Descobrir VPC padrão quando nenhuma foi informada
-  amazon.aws.ec2_vpc_net_info:
-    filters:
-      isDefault: true
-  register: default_vpc_info
-  when: not vpc_id
+- name: Preparar VPC e sub-redes quando create_vpc=true
+  when: create_vpc | bool
+  block:
+    - name: Criar VPC do projeto
+      amazon.aws.ec2_vpc_net:
+        name: "{{ project_name }}-vpc"
+        cidr_block: "{{ vpc_cidr_block }}"
+        enable_dns_support: true
+        enable_dns_hostnames: true
+        state: present
+        tags: "{{ common_tags | combine({'Component': 'network'}) }}"
+      register: created_vpc
 
-- name: Definir VPC a ser utilizada
-  set_fact:
-    resolved_vpc_id: "{{ vpc_id | default(default_vpc_info.vpcs[0].id) }}"
+    - name: Registrar VPC criada
+      ansible.builtin.set_fact:
+        resolved_vpc_id: "{{ created_vpc.vpc.id }}"
 
-- name: Obter sub-redes do VPC selecionado quando não informadas
-  amazon.aws.ec2_vpc_subnet_info:
-    filters:
-      vpc-id: "{{ resolved_vpc_id }}"
-  register: resolved_vpc_subnets
-  when: public_subnet_ids | length == 0 or private_subnet_ids | length == 0
+    - name: Criar Internet Gateway da VPC
+      amazon.aws.ec2_vpc_igw:
+        state: present
+        vpc_id: "{{ resolved_vpc_id }}"
+        tags: "{{ common_tags | combine({'Component': 'igw'}) }}"
+      register: created_igw
 
-- name: Definir sub-redes públicas
-  set_fact:
-    resolved_public_subnets: >-
-      {{ (public_subnet_ids | length > 0)
-          | ternary(public_subnet_ids,
-                    (resolved_vpc_subnets.subnets | default([]) | map(attribute='id') | list)) }}
+    - name: Criar route table pública com rota default
+      amazon.aws.ec2_vpc_route_table:
+        vpc_id: "{{ resolved_vpc_id }}"
+        tags: "{{ common_tags | combine({'Component': 'public-rt'}) }}"
+        state: present
+        routes:
+          - dest: 0.0.0.0/0
+            gateway_id: "{{ created_igw.gateway_id }}"
+      register: public_route_table
 
-- name: Definir sub-redes privadas (usa as mesmas se nenhuma for informada)
-  set_fact:
-    resolved_private_subnets: >-
-      {{ (private_subnet_ids | length > 0)
-          | ternary(private_subnet_ids, resolved_public_subnets) }}
+    - name: Criar sub-redes públicas
+      amazon.aws.ec2_vpc_subnet:
+        vpc_id: "{{ resolved_vpc_id }}"
+        cidr: "{{ item.cidr }}"
+        az: "{{ item.az }}"
+        map_public: true
+        state: present
+        tags: "{{ common_tags | combine({'Component': 'public-subnet', 'Name': item.name | default(item.cidr)}) }}"
+      loop: "{{ public_subnets_config }}"
+      register: created_public_subnets
 
-- name: Garantir que há sub-redes públicas disponíveis
+    - name: Associar sub-redes públicas ao route table
+      amazon.aws.ec2_vpc_route_table:
+        route_table_id: "{{ public_route_table.route_table.id }}"
+        state: present
+        subnets: "{{ created_public_subnets.results | map(attribute='subnet.id') | list }}"
+
+    - name: Criar sub-redes privadas
+      amazon.aws.ec2_vpc_subnet:
+        vpc_id: "{{ resolved_vpc_id }}"
+        cidr: "{{ item.cidr }}"
+        az: "{{ item.az }}"
+        map_public: false
+        state: present
+        tags: "{{ common_tags | combine({'Component': 'private-subnet', 'Name': item.name | default(item.cidr)}) }}"
+      loop: "{{ private_subnets_config }}"
+      register: created_private_subnets
+
+    - name: Definir sub-redes resolvidas a partir da criação
+      ansible.builtin.set_fact:
+        resolved_public_subnets: "{{ created_public_subnets.results | map(attribute='subnet.id') | list }}"
+        resolved_private_subnets: "{{ created_private_subnets.results | map(attribute='subnet.id') | list }}"
+
+- name: Preparar VPC e sub-redes quando reaproveitando infraestrutura
+  when: not create_vpc | bool
+  block:
+    - name: Descobrir VPC padrão quando nenhuma foi informada
+      amazon.aws.ec2_vpc_net_info:
+        filters:
+          isDefault: true
+      register: default_vpc_info
+      when: not vpc_id
+
+    - name: Definir VPC a ser utilizada
+      ansible.builtin.set_fact:
+        resolved_vpc_id: "{{ vpc_id | default(default_vpc_info.vpcs[0].id) }}"
+
+    - name: Obter sub-redes do VPC selecionado quando não informadas
+      amazon.aws.ec2_vpc_subnet_info:
+        filters:
+          vpc-id: "{{ resolved_vpc_id }}"
+      register: resolved_vpc_subnets
+      when: public_subnet_ids | length == 0 or private_subnet_ids | length == 0
+
+    - name: Definir sub-redes públicas
+      ansible.builtin.set_fact:
+        resolved_public_subnets: >-
+          {{ (public_subnet_ids | length > 0)
+              | ternary(public_subnet_ids,
+                        (resolved_vpc_subnets.subnets | default([])
+                         | selectattr('map_public_ip_on_launch', 'defined')
+                         | selectattr('map_public_ip_on_launch')
+                         | map(attribute='id') | list)) }}
+
+    - name: Definir sub-redes privadas (usa todas as demais quando nenhuma for informada)
+      ansible.builtin.set_fact:
+        resolved_private_subnets: >-
+          {{ (private_subnet_ids | length > 0)
+              | ternary(private_subnet_ids,
+                        (resolved_vpc_subnets.subnets | default([])
+                         | rejectattr('id', 'in', resolved_public_subnets | default([]))
+                         | map(attribute='id') | list)) }}
+
+- name: Validar se há sub-redes públicas e privadas disponíveis
   ansible.builtin.assert:
     that:
       - resolved_public_subnets | length > 0
-    fail_msg: "Nenhuma subnet pública foi encontrada ou informada. Atualize group_vars/all.yml."
+      - resolved_private_subnets | length > 0
+    fail_msg: "Nenhuma subnet pública ou privada disponível. Ajuste variáveis em group_vars/all.yml."
 
-- name: Criar security group para o servidor web
+- name: Criar security group para o servidor web (porta 80 liberada)
   amazon.aws.ec2_security_group:
     name: "{{ project_name }}-web-sg"
     description: Permite HTTP/HTTPS para o servidor web
@@ -92,7 +169,6 @@
     instance_type: "{{ ec2_instance_type }}"
     image_id: "{{ ec2_ami_id }}"
     subnet_id: "{{ resolved_public_subnets[0] }}"
-    security_groups: []
     security_group_ids:
       - "{{ web_sg.group_id }}"
     volumes:

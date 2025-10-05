@@ -1,34 +1,39 @@
 ---
-- name: Instalar pacotes necessários
+- name: Instalar Nginx
   ansible.builtin.package:
-    name:
-      - httpd
-      - git
+    name: nginx
     state: present
   become: true
 
-- name: Configurar diretório do site
+- name: Garantir diretório do site
   ansible.builtin.file:
     path: "{{ app_document_root }}"
     state: directory
-    owner: apache
-    group: apache
+    owner: nginx
+    group: nginx
     mode: "0755"
   become: true
 
-- name: Publicar arquivo index padrão (quando nenhum deploy foi feito)
+- name: Publicar configuração do servidor Nginx
   ansible.builtin.template:
-    src: index.html.j2
-    dest: "{{ app_document_root }}/index.html"
-    owner: apache
-    group: apache
+    src: app.conf.j2
+    dest: /etc/nginx/conf.d/app.conf
+    owner: root
+    group: root
     mode: "0644"
   become: true
-  notify: Reiniciar httpd
+  notify: Reiniciar nginx
 
-- name: Garantir que o serviço httpd está habilitado e ativo
+- name: Desabilitar configuração padrão quando existir
+  ansible.builtin.file:
+    path: /etc/nginx/conf.d/default.conf
+    state: absent
+  become: true
+  notify: Reiniciar nginx
+
+- name: Garantir que o serviço nginx está habilitado e ativo
   ansible.builtin.service:
-    name: httpd
+    name: nginx
     state: started
     enabled: true
   become: true

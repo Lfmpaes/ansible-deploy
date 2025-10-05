@@ -1,16 +1,18 @@
 ---
-- name: Atualizar aplicação web com nova versão
+- name: Atualizar aplicação Nginx com nova release
   hosts: tag_Role_web
   become: true
   serial: 1
   vars:
-    app_version: "{{ new_release | default(app_version) }}"
+    desired_release: "{{ new_release | default(app_release_label) }}"
   pre_tasks:
-    - name: Validar versão informada
+    - name: Validar release informada
       ansible.builtin.assert:
         that:
-          - app_version is defined
-          - app_version | length > 0
-        fail_msg: "Informe a variável new_release=<tag ou commit> ao executar o playbook."
+          - desired_release is defined
+          - desired_release | string | length > 0
+        fail_msg: "Informe a variável new_release=<identificador> ao executar o playbook."
   roles:
     - role: app
+      vars:
+        app_release_label: "{{ desired_release }}"
