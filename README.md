@@ -5,8 +5,19 @@ Este repositório contém playbooks e roles Ansible que automatizam o provisiona
 ## Pré-requisitos
 - Ansible >= 2.15 com Python 3.9+
 - Coleções `amazon.aws` e `community.aws`
-- AWS CLI configurado e arquivo `aws_credentials` válido (mantenha no diretório raiz)
+- AWS CLI configurado **e arquivo `aws_credentials` obrigatório** (mantido na raiz do repositório)
 - Chave SSH existente na AWS (`ec2_key_name`) ou caminho local para a chave pública (`ec2_public_key_path`)
+
+Crie/atualize o arquivo `aws_credentials` antes de executar qualquer playbook, seguindo o formato padrão da AWS:
+
+```ini
+[default]
+aws_access_key_id=SEU_ACCESS_KEY
+aws_secret_access_key=SEU_SECRET_KEY
+aws_session_token=SEU_SESSION_TOKEN  # remova esta linha se usar credenciais permanentes
+```
+
+> Os playbooks usam `AWS_SHARED_CREDENTIALS_FILE=./aws_credentials`; credenciais ausentes ou inválidas resultam em erros `UnauthorizedOperation` imediatamente no provisionamento.
 
 Instale as coleções necessárias:
 
@@ -68,7 +79,7 @@ docs/
 ## Execução sugerida
 ```bash
 # Provisionar infraestrutura (cria VPC, sub-redes e instâncias)
-ansible-playbook playbooks/provision_infra.yml
+ansible-playbook playbooks/provision_infra.yml -i inventories/aws_ec2.yml
 
 # Configurar Nginx e gerar arquivo de conexão com o RDS
 ansible-playbook playbooks/configure_web.yml
@@ -83,7 +94,7 @@ ansible-playbook playbooks/update_app.yml -e new_release=v1.1.0
 ansible-playbook playbooks/scale_app.yml -e web_desired_capacity=2
 ```
 
-> **Dica:** Exporte `AWS_SHARED_CREDENTIALS_FILE=./aws_credentials` ou ajuste `aws_profile` para o profile correto no arquivo de credenciais antes de executar os playbooks.
+> **Importante:** sempre execute os playbooks com `AWS_SHARED_CREDENTIALS_FILE=./aws_credentials` (já configurado nos playbooks) e mantenha o perfil `default` do arquivo sincronizado com as credenciais atuais.
 
 ## Próximos passos
 - Conectar os playbooks a pipelines (GitHub Actions, GitLab CI, etc.) para provisionamento/deploy contínuos.

@@ -4,6 +4,8 @@
   become: true
   collections:
     - amazon.aws
+  vars_files:
+    - ../group_vars/all.yml
   environment:
     AWS_SHARED_CREDENTIALS_FILE: "{{ playbook_dir }}/../aws_credentials"
   module_defaults:

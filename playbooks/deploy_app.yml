@@ -3,5 +3,7 @@
   hosts: tag_Role_web
   become: true
   serial: 1
+  vars_files:
+    - ../group_vars/all.yml
   roles:
     - role: app

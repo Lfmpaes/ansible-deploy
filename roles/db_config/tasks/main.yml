@@ -5,6 +5,7 @@
   register: rds_info
   delegate_to: localhost
   run_once: true
+  become: false
 
 - name: Compartilhar endpoint com os servidores web
   ansible.builtin.set_fact:

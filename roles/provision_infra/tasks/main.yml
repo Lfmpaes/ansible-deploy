@@ -50,6 +50,7 @@
         lookup: id
         vpc_id: "{{ resolved_vpc_id }}"
         state: present
+        purge_routes: false
         subnets: "{{ created_public_subnets.results | map(attribute='subnet.id') | list }}"
 
     - name: Criar sub-redes privadas
@@ -210,7 +211,10 @@
   ansible.builtin.wait_for:
     host: "{{ web_instance.instances[0].public_ip_address | default(web_instance.instances[0].private_ip_address) }}"
     port: 22
-    timeout: 320
+    state: started
+    delay: 5
+    sleep: 5
+    timeout: 180
   when: web_instance.instances | length > 0
 
 - name: Adicionar instância web ao inventário em tempo de execução
@@ -218,8 +222,30 @@
     name: "{{ web_instance.instances[0].public_dns_name | default(web_instance.instances[0].private_ip_address) }}"
     groups: webservers
     ansible_host: "{{ web_instance.instances[0].public_ip_address | default(web_instance.instances[0].private_ip_address) }}"
+    ansible_user: ec2-user
+    ansible_python_interpreter: /usr/bin/python3
+    ansible_pkg_mgr: yum
     private_ip: "{{ web_instance.instances[0].private_ip_address }}"
     instance_id: "{{ web_instance.instances[0].instance_id }}"
+  when: web_instance.instances | length > 0
+
+- name: Persistir inventário das instâncias web provisionadas
+  ansible.builtin.copy:
+    dest: "{{ playbook_dir }}/../artifacts/provisioned_inventory.yml"
+    content: |
+      all:
+        children:
+          tag_Role_web:
+            hosts:
+              {{ web_instance.instances[0].public_dns_name | default(web_instance.instances[0].private_ip_address) }}:
+                ansible_user: ec2-user
+                ansible_host: "{{ web_instance.instances[0].public_ip_address | default(web_instance.instances[0].private_ip_address) }}"
+                private_ip: "{{ web_instance.instances[0].private_ip_address }}"
+                instance_id: "{{ web_instance.instances[0].instance_id }}"
+                ansible_python_interpreter: /usr/bin/python3
+                ansible_pkg_mgr: yum
+  delegate_to: localhost
+  run_once: true
   when: web_instance.instances | length > 0
 
 - name: Criar/atualizar grupo de sub-redes para o RDS
@@ -227,7 +253,7 @@
     state: present
     name: "{{ project_name }}-rds-subnets"
     description: Subnets utilizadas pelo RDS
-    subnet_ids: "{{ resolved_private_subnets }}"
+    subnets: "{{ resolved_private_subnets }}"
     tags: "{{ common_tags | combine({'Role': 'database'}) }}"
 
 - name: Provisionar instância RDS MySQL
@@ -242,7 +268,7 @@
     multi_az: "{{ rds_multi_az }}"
     backup_retention_period: "{{ rds_backup_retention }}"
     publicly_accessible: "{{ rds_publicly_accessible }}"
-    vpc_security_groups:
+    vpc_security_group_ids:
       - "{{ db_sg.group_id }}"
     db_subnet_group_name: "{{ project_name }}-rds-subnets"
     tags: "{{ common_tags | combine({'Role': 'database'}) }}"
