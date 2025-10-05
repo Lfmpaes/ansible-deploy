@@ -1,0 +1,6 @@
+---
+- name: Reiniciar httpd
+  ansible.builtin.service:
+    name: httpd
+    state: restarted
+  become: true

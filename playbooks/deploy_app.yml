@@ -1,0 +1,7 @@
+---
+- name: Realizar deploy da aplicação
+  hosts: tag_Role_web
+  become: true
+  serial: 1
+  roles:
+    - role: app

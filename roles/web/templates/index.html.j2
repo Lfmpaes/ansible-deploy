@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>{{ project_name | default('Ansible Startup Lab') }}</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 40px; background: #f4f6f8; color: #333; }
+      h1 { color: #2b6cb0; }
+      .info { margin-top: 20px; padding: 16px; background: #fff; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+      code { background: #edf2f7; padding: 2px 4px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <h1>Deploy automatizado com Ansible</h1>
+    <div class="info">
+      <p>Projeto: {{ project_name }}</p>
+      <p>Ambiente: {{ environment }}</p>
+      <p>Servidor provisionado em {{ aws_region }}</p>
+      <p>Gerenciado por Ansible em {{ ansible_date_time.date }}.</p>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+---
+- name: Configurar servidores web
+  hosts: tag_Role_web
+  become: true
+  collections:
+    - amazon.aws
+  environment:
+    AWS_SHARED_CREDENTIALS_FILE: "{{ playbook_dir }}/../aws_credentials"
+  module_defaults:
+    group/aws:
+      region: "{{ aws_region }}"
+      profile: "{{ aws_profile }}"
+  roles:
+    - role: web
+    - role: db_config

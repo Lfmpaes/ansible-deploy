@@ -1,0 +1,15 @@
+---
+- name: Ajustar capacidade da aplicação
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  collections:
+    - amazon.aws
+  environment:
+    AWS_SHARED_CREDENTIALS_FILE: "{{ playbook_dir }}/../aws_credentials"
+  module_defaults:
+    group/aws:
+      region: "{{ aws_region }}"
+      profile: "{{ aws_profile }}"
+  roles:
+    - role: scale

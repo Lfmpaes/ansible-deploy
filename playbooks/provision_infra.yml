@@ -1,0 +1,18 @@
+---
+- name: Provisionar infraestrutura AWS
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  collections:
+    - amazon.aws
+    - community.aws
+  environment:
+    AWS_SHARED_CREDENTIALS_FILE: "{{ playbook_dir }}/../aws_credentials"
+  vars:
+    aws_region: "{{ aws_region }}"
+  module_defaults:
+    group/aws:
+      region: "{{ aws_region }}"
+      profile: "{{ aws_profile }}"
+  roles:
+    - role: provision_infra

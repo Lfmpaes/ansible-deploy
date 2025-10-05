@@ -1,0 +1,92 @@
+---
+- name: Recuperar VPC padrão quando não houver valor em vpc_id
+  amazon.aws.ec2_vpc_net_info:
+    filters:
+      isDefault: true
+  register: default_vpc
+  when: not vpc_id
+
+- name: Definir VPC
+  set_fact:
+    resolved_vpc_id: "{{ vpc_id | default(default_vpc.vpcs[0].id) }}"
+
+- name: Buscar sub-redes do VPC
+  amazon.aws.ec2_vpc_subnet_info:
+    filters:
+      vpc-id: "{{ resolved_vpc_id }}"
+  register: scale_vpc_subnets
+
+- name: Definir sub-redes para Auto Scaling
+  set_fact:
+    scale_subnets: >-
+      {{ (public_subnet_ids | length > 0)
+          | ternary(public_subnet_ids,
+                    (scale_vpc_subnets.subnets | default([]) | map(attribute='id') | list)) }}
+
+- name: Garantir que existem sub-redes para escalonamento
+  ansible.builtin.assert:
+    that:
+      - scale_subnets | length > 0
+    fail_msg: "Nenhuma subnet encontrada para o Auto Scaling Group."
+
+- name: Obter security group do webserver
+  amazon.aws.ec2_security_group_info:
+    filters:
+      group-names:
+        - "{{ project_name }}-web-sg"
+      vpc-id: "{{ resolved_vpc_id }}"
+  register: scale_web_sg
+
+- name: Validar security group recuperado
+  ansible.builtin.assert:
+    that:
+      - scale_web_sg.security_groups | length > 0
+    fail_msg: "Security group {{ project_name }}-web-sg não encontrado. Execute o playbook de provisionamento antes."
+
+- name: Criar ou atualizar Launch Template
+  amazon.aws.ec2_launch_template:
+    name: "{{ project_name }}-web-lt"
+    image_id: "{{ ec2_ami_id }}"
+    instance_type: "{{ ec2_instance_type }}"
+    key_name: "{{ ec2_key_name }}"
+    update_default_version: true
+    network_interfaces:
+      - device_index: 0
+        associate_public_ip_address: true
+        groups: "{{ [scale_web_sg.security_groups[0].group_id] }}"
+    tag_specifications:
+      - resource_type: instance
+        tags: "{{ common_tags | combine({'Role': 'web'}) }}"
+      - resource_type: volume
+        tags: "{{ common_tags | combine({'Role': 'web'}) }}"
+  register: launch_template
+
+- name: Criar ou atualizar Auto Scaling Group
+  amazon.aws.autoscaling_group:
+    name: "{{ project_name }}-web-asg"
+    launch_template:
+      name: "{{ launch_template.launch_template.name }}"
+      version: "{{ launch_template.launch_template.latest_version_number }}"
+    min_size: "{{ web_min_size }}"
+    max_size: "{{ web_max_size }}"
+    desired_capacity: "{{ web_desired_capacity }}"
+    vpc_zone_identifier: "{{ scale_subnets }}"
+    tags:
+      - key: Project
+        value: "{{ project_name }}"
+        propagate_at_launch: true
+      - key: Environment
+        value: "{{ environment }}"
+        propagate_at_launch: true
+      - key: Role
+        value: web
+        propagate_at_launch: true
+    wait_timeout: 600
+    wait_for_instances: true
+  register: asg_result
+
+- name: Exibir resumo do escalonamento
+  ansible.builtin.debug:
+    msg:
+      desired_capacity: "{{ asg_result.autoscaling_group.desired_capacity }}"
+      current_instances: "{{ asg_result.instances | map(attribute='instance_id') | list }}"

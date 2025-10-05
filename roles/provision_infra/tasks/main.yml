@@ -1,0 +1,164 @@
+---
+- name: Descobrir VPC padrão quando nenhuma foi informada
+  amazon.aws.ec2_vpc_net_info:
+    filters:
+      isDefault: true
+  register: default_vpc_info
+  when: not vpc_id
+
+- name: Definir VPC a ser utilizada
+  set_fact:
+    resolved_vpc_id: "{{ vpc_id | default(default_vpc_info.vpcs[0].id) }}"
+
+- name: Obter sub-redes do VPC selecionado quando não informadas
+  amazon.aws.ec2_vpc_subnet_info:
+    filters:
+      vpc-id: "{{ resolved_vpc_id }}"
+  register: resolved_vpc_subnets
+  when: public_subnet_ids | length == 0 or private_subnet_ids | length == 0
+
+- name: Definir sub-redes públicas
+  set_fact:
+    resolved_public_subnets: >-
+      {{ (public_subnet_ids | length > 0)
+          | ternary(public_subnet_ids,
+                    (resolved_vpc_subnets.subnets | default([]) | map(attribute='id') | list)) }}
+
+- name: Definir sub-redes privadas (usa as mesmas se nenhuma for informada)
+  set_fact:
+    resolved_private_subnets: >-
+      {{ (private_subnet_ids | length > 0)
+          | ternary(private_subnet_ids, resolved_public_subnets) }}
+
+- name: Garantir que há sub-redes públicas disponíveis
+  ansible.builtin.assert:
+    that:
+      - resolved_public_subnets | length > 0
+    fail_msg: "Nenhuma subnet pública foi encontrada ou informada. Atualize group_vars/all.yml."
+
+- name: Criar security group para o servidor web
+  amazon.aws.ec2_security_group:
+    name: "{{ project_name }}-web-sg"
+    description: Permite HTTP/HTTPS para o servidor web
+    vpc_id: "{{ resolved_vpc_id }}"
+    tags: "{{ common_tags | combine({'Role': 'web'}) }}"
+    inbound_rules:
+      - proto: tcp
+        from_port: 80
+        to_port: 80
+        cidr_ip: 0.0.0.0/0
+      - proto: tcp
+        from_port: 443
+        to_port: 443
+        cidr_ip: 0.0.0.0/0
+    outbound_rules:
+      - proto: -1
+        from_port: 0
+        to_port: 0
+        cidr_ip: 0.0.0.0/0
+    state: present
+  register: web_sg
+
+- name: Criar security group para o banco de dados
+  amazon.aws.ec2_security_group:
+    name: "{{ project_name }}-db-sg"
+    description: Permite acesso MySQL proveniente das instâncias web
+    vpc_id: "{{ resolved_vpc_id }}"
+    tags: "{{ common_tags | combine({'Role': 'database'}) }}"
+    inbound_rules:
+      - proto: tcp
+        from_port: 3306
+        to_port: 3306
+        group_id: "{{ web_sg.group_id }}"
+    outbound_rules:
+      - proto: -1
+        from_port: 0
+        to_port: 0
+        cidr_ip: 0.0.0.0/0
+    state: present
+  register: db_sg
+
+- name: Criar/atualizar o par de chaves (caso chave pública seja fornecida)
+  amazon.aws.ec2_key:
+    name: "{{ ec2_key_name }}"
+    key_material: "{{ lookup('ansible.builtin.file', ec2_public_key_path) }}"
+    state: present
+  when: ec2_public_key_path is defined
+
+- name: Provisionar instância EC2 para o servidor web
+  amazon.aws.ec2_instance:
+    name: "{{ project_name }}-web-{{ environment }}"
+    key_name: "{{ ec2_key_name }}"
+    instance_type: "{{ ec2_instance_type }}"
+    image_id: "{{ ec2_ami_id }}"
+    subnet_id: "{{ resolved_public_subnets[0] }}"
+    security_groups: []
+    security_group_ids:
+      - "{{ web_sg.group_id }}"
+    volumes:
+      - device_name: /dev/xvda
+        ebs:
+          volume_size: "{{ ec2_root_volume_size }}"
+          delete_on_termination: true
+    tags: "{{ common_tags | combine({'Role': 'web'}) }}"
+    wait: true
+  register: web_instance
+
+- name: Aguardar SSH ficar disponível
+  ansible.builtin.wait_for:
+    host: "{{ web_instance.instances[0].public_ip_address | default(web_instance.instances[0].private_ip_address) }}"
+    port: 22
+    timeout: 320
+  when: web_instance.instances | length > 0
+
+- name: Adicionar instância web ao inventário em tempo de execução
+  ansible.builtin.add_host:
+    name: "{{ web_instance.instances[0].public_dns_name | default(web_instance.instances[0].private_ip_address) }}"
+    groups: webservers
+    ansible_host: "{{ web_instance.instances[0].public_ip_address | default(web_instance.instances[0].private_ip_address) }}"
+    private_ip: "{{ web_instance.instances[0].private_ip_address }}"
+    instance_id: "{{ web_instance.instances[0].instance_id }}"
+  when: web_instance.instances | length > 0
+
+- name: Criar/atualizar grupo de sub-redes para o RDS
+  amazon.aws.rds_subnet_group:
+    state: present
+    name: "{{ project_name }}-rds-subnets"
+    description: Subnets utilizadas pelo RDS
+    subnet_ids: "{{ resolved_private_subnets }}"
+    tags: "{{ common_tags | combine({'Role': 'database'}) }}"
+
+- name: Provisionar instância RDS MySQL
+  amazon.aws.rds_instance:
+    db_instance_identifier: "{{ rds_instance_identifier }}"
+    engine: "{{ rds_engine }}"
+    engine_version: "{{ rds_engine_version }}"
+    db_instance_class: "{{ rds_instance_class }}"
+    allocated_storage: "{{ rds_allocated_storage }}"
+    master_username: "{{ rds_master_username }}"
+    master_user_password: "{{ rds_master_password }}"
+    multi_az: "{{ rds_multi_az }}"
+    backup_retention_period: "{{ rds_backup_retention }}"
+    publicly_accessible: "{{ rds_publicly_accessible }}"
+    vpc_security_groups:
+      - "{{ db_sg.group_id }}"
+    db_subnet_group_name: "{{ project_name }}-rds-subnets"
+    tags: "{{ common_tags | combine({'Role': 'database'}) }}"
+    state: present
+    wait: true
+  register: rds_instance
+
+- name: Registrar endpoint do RDS
+  ansible.builtin.set_fact:
+    rds_endpoint_address: "{{ rds_instance.db_instance['Endpoint']['Address'] }}"
+  when: rds_instance is defined and rds_instance.db_instance is defined and 'Endpoint' in rds_instance.db_instance
+
+- name: Expor informações importantes como artefato local
+  ansible.builtin.copy:
+    dest: "{{ playbook_dir }}/../artifacts/provisioning_output.json"
+    content: >-
+      {{ {'web_instance': web_instance.instances | default([]) | first | default({}),
+          'rds_endpoint': rds_endpoint_address | default('') } | to_nice_json }}
+  delegate_to: localhost
+  run_once: true
+  when: web_instance is defined or rds_instance is defined

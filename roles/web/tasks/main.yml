@@ -1,0 +1,34 @@
+---
+- name: Instalar pacotes necessários
+  ansible.builtin.package:
+    name:
+      - httpd
+      - git
+    state: present
+  become: true
+
+- name: Configurar diretório do site
+  ansible.builtin.file:
+    path: "{{ app_document_root }}"
+    state: directory
+    owner: apache
+    group: apache
+    mode: "0755"
+  become: true
+
+- name: Publicar arquivo index padrão (quando nenhum deploy foi feito)
+  ansible.builtin.template:
+    src: index.html.j2
+    dest: "{{ app_document_root }}/index.html"
+    owner: apache
+    group: apache
+    mode: "0644"
+  become: true
+  notify: Reiniciar httpd
+
+- name: Garantir que o serviço httpd está habilitado e ativo
+  ansible.builtin.service:
+    name: httpd
+    state: started
+    enabled: true
+  become: true

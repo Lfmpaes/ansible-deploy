@@ -1,0 +1,19 @@
+---
+plugin: amazon.aws.aws_ec2
+regions:
+  - us-east-1  # Atualize para a região que você usa
+keyed_groups:
+  - key: tags.Project
+    prefix: tag_Project_
+  - key: tags.Role
+    prefix: tag_Role_
+filters:
+  tag:Project: ansible-startup-lab
+  instance-state-name: running
+hostnames:
+  - private-ip-address
+  - public-ip-address
+compose:
+  ansible_host: public_ip_address | default(private_ip_address)
+  private_ip: private_ip_address
+  instance_id: instance_id

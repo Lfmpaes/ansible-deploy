@@ -1,0 +1,29 @@
+---
+- name: Obter endpoint do RDS
+  amazon.aws.rds_instance_info:
+    db_instance_identifier: "{{ rds_instance_identifier }}"
+  register: rds_info
+  delegate_to: localhost
+  run_once: true
+
+- name: Compartilhar endpoint com os servidores web
+  ansible.builtin.set_fact:
+    rds_endpoint_address: "{{ rds_info.instances[0].endpoint.address }}"
+
+- name: Criar diretório de configuração da aplicação
+  ansible.builtin.file:
+    path: /etc/app
+    state: directory
+    owner: apache
+    group: apache
+    mode: "0750"
+  become: true
+
+- name: Publicar arquivo de configuração do banco de dados
+  ansible.builtin.template:
+    src: db.env.j2
+    dest: /etc/app/db.env
+    owner: apache
+    group: apache
+    mode: "0600"
+  become: true
