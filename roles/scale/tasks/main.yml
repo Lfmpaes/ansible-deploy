@@ -76,7 +76,7 @@
         value: "{{ project_name }}"
         propagate_at_launch: true
       - key: Environment
-        value: "{{ environment }}"
+        value: "{{ deployment_environment }}"
         propagate_at_launch: true
       - key: Role
         value: web

@@ -15,7 +15,7 @@
     <p>{{ app_welcome_message }}</p>
     <div class="info">
       <p><span class="tag">Projeto</span> {{ project_name }}</p>
-      <p><span class="tag">Ambiente</span> {{ environment }}</p>
+      <p><span class="tag">Ambiente</span> {{ deployment_environment }}</p>
       <p><span class="tag">Região AWS</span> {{ aws_region }}</p>
       <p><span class="tag">Release</span> {{ app_release_label }}</p>
       <p><span class="tag">Atualizado em</span> {{ ansible_date_time.date }} {{ ansible_date_time.time }}</p>
