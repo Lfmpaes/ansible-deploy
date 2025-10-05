@@ -1,6 +1,11 @@
 # Automação Ansible para Deploy na AWS
 
+
 Este repositório contém playbooks e roles Ansible que automatizam o provisionamento de infraestrutura na AWS (VPC, sub-redes, security groups, EC2 e RDS) e a implantação de um servidor Nginx que expõe um site estático com integração a um banco MySQL. O fluxo também cobre atualização contínua e escalabilidade horizontal via Auto Scaling Group.
+
+## Alunos:
+- Luiz Fernando Menezes Paes
+- Maria Eduarda Pessanha Gonçalves
 
 ## Pré-requisitos
 - Ansible >= 2.15 com Python 3.9+

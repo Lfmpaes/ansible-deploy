@@ -3,6 +3,8 @@
   hosts: tag_Role_web
   become: true
   serial: 1
+  vars_files:
+    - ../group_vars/all.yml
   vars:
     desired_release: "{{ new_release | default(app_release_label) }}"
   pre_tasks:
